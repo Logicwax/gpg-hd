@@ -7,3 +7,6 @@
 [submodule "submodules/ptyprocess"]
 	path = submodules/ptyprocess
 	url = https://github.com/pexpect/ptyprocess
+[submodule "submodules/pycrypto"]
+	path = submodules/pycrypto
+	url = https://github.com/pycrypto/pycrypto.git
