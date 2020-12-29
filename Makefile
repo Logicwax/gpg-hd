@@ -3,7 +3,6 @@
 default: install
 
 install:
-	git submodule update --init --recursive
 	sudo apt-get install -y \
 		monkeysphere \
 		python-is-python2 \

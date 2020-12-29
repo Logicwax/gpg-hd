@@ -17,7 +17,6 @@ Installation
 
 `make install`  (will need sudo elevation)
 
-* All python modules included to help aide in portability (for airgap)
 
 How to use
 ----------

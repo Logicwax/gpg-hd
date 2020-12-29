@@ -1,3 +1,0 @@
-[submodule "submodules/python_hmac_drbg"]
-	path = submodules/python_hmac_drbg
-	url = https://github.com/fpgaminer/python-hmac-drbg
