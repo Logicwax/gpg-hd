@@ -10,12 +10,15 @@ Requirements
 
 * [GPG](http://gnupg.org)
 * [MonkeySphere](http://web.monkeysphere.info/)
-* [PyCrypto](https://www.dlitz.net/software/pycrypto/)
+* Python
+* make
+* python-dev-is-python2
 
---
-- apt-get install monkeysphere python-dev-is-python2
-- git submodule update --init
 
+Installation
+------------
+
+`make install`  (will need sudo elevation)
 
 How to use
 ----------
