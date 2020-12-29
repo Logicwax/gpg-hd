@@ -4,7 +4,6 @@
 # Requirements: pycrypto, monkeysphere, gpg
 
 import os
-import drbg
 import subprocess
 import sys
 from Crypto.PublicKey import RSA
@@ -12,6 +11,11 @@ from Crypto.Hash import SHA256
 import ptyprocess
 import pexpect
 import hashlib
+
+HMAC_DRBG_DIR = os.path.join(os.path.dirname(__file__), 'submodules', 'python_hmac_drbg', 'hmac_drbg')
+if HMAC_DRBG_DIR not in sys.path:
+  sys.path.insert(0, HMAC_DRBG_DIR)
+import hmac_drbg
 
 # GPG / yubikeys won't allow adding subkeys keytocard with timestamp of unix epoch 0
 # We will use timestamp of 1 (A second into 1970-01-01) to indicate this is GPG-HD generated keys
@@ -130,8 +134,10 @@ def GPG_import_keychain(keychain_filename):
 
 
 def GPG_create_key(user_id, seed):
-  rand = drbg.HMAC_DRBG(seed)
-  key = RSA.generate(4096, rand.read)
+
+  rand = hmac_drbg.HMAC_DRBG(hashlib.sha512(seed).digest())
+  key = RSA.generate(4096, rand.generate)
+
   # Since we're auto-generating the key, default the creation time to UNIX time of (timeStamp)
   os.environ['PEM2OPENPGP_TIMESTAMP'] = timeStamp
 
