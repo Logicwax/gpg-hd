@@ -1,0 +1,9 @@
+[submodule "python-hmac-drbg"]
+	path = python-hmac-drbg
+	url = git@github.com:fpgaminer/python-hmac-drbg.git
+[submodule "submodules/python_hmac_drbg"]
+	path = submodules/python_hmac_drbg
+	url = git@github.com:fpgaminer/python-hmac-drbg.git
+[submodule "submodules/ptyprocess"]
+	path = submodules/ptyprocess
+	url = https://github.com/pexpect/ptyprocess
