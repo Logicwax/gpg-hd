@@ -13,8 +13,7 @@ Requirements
 * [PyCrypto](https://www.dlitz.net/software/pycrypto/)
 
 --
-- pip install pycrypto
-- apt-get install monkeysphere
+- apt-get install monkeysphere python-dev-is-python2
 - git submodule update --init
 
 

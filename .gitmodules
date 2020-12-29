@@ -10,3 +10,6 @@
 [submodule "submodules/pycrypto"]
 	path = submodules/pycrypto
 	url = https://github.com/pycrypto/pycrypto.git
+[submodule "submodules/pexpect"]
+	path = submodules/pexpect
+	url = https://github.com/pexpect/pexpect
