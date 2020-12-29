@@ -21,6 +21,8 @@ Installation
 
 `make install`  (will need sudo elevation)
 
+* All python modules included to help aide in portability (for airgap)
+
 How to use
 ----------
 
@@ -35,14 +37,22 @@ If the last argument is `--card` then GPG-HD will attempt to write the three sub
 
 Private and Public GPG keychain files + SSH public key are located in the `keys` sub-directory.
 
+
+Testing
+----------
+
+If on non-debian system, but you have docker:
+
+`make docker-test`
+
+
 Use Cases
 ----------
 
-Use a safe brainwallet such as [PortalWallet](https://github.com/Logicwax/PortalWallet) to generate a BIP-39 phrase:
+On an airgap machine, use a safe brainwallet such as [PortalWallet](https://github.com/Logicwax/PortalWallet) to generate a BIP-39 phrase:
 
 `SEED = portalwallet("satoshi")`
 
  `SEED="fetch december jazz hood pact owner cloth apart impact then person actual"`
 
  `./gpg-hd $SEED "satoshi" "satoshi@aol.com"`
-

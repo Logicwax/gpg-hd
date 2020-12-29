@@ -236,7 +236,7 @@ def GPG_card_write(keyID):
 
 
 if __name__ == '__main__':
-  os.system("rm -rf temp *.asc keys > /dev/null 2>&1")
+  os.system("rm -rf temp *.asc keys/* > /dev/null 2>&1")
   os.system("killall gpg-agent scdaemon ssh-agent > /dev/null 2>&1")
   card_write = False
   print("\n")
@@ -284,7 +284,7 @@ if __name__ == '__main__':
 
   # GPG needs grips for moving to subkeys
   keygrips = GPG_get_keygrips()
- 
+
   # Assemble the keychain
   GPG_set_primary_key(masterkeyID, timeStamp)
   GPG_add_auth_subkey(masterkeyID, keygrips.split('\n')[1], timeStamp)
@@ -305,7 +305,7 @@ if __name__ == '__main__':
   os.environ['GNUPGHOME'] = "temp"
 
   GPG_import_keychain(os.path.join(keys_path, "private_keychain.asc"))
-  
+
   # just for show...
   print("\n\n\n")
   gpg_list = subprocess.Popen([ \
