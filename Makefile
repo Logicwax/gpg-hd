@@ -3,7 +3,8 @@
 default: install
 
 install:
-	sudo apt-get install python-is-python2 monkeysphere python-dev-is-python2
 	git submodule update --init --recursive
+	sudo apt-get install g++ python-is-python2 monkeysphere python-dev-is-python2
 	cd submodules/pycrypto && python setup.py build && sudo python setup.py install
-	cd submodules/pyexpect && python setup.py build && sudo python setup.py install
+	cd submodules/pexpect && python setup.py build && sudo python setup.py install
+	sudo cp -R submodules/ptyprocess/ptyprocess /usr/local/lib/python2.7/dist-packages/

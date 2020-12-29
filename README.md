@@ -12,6 +12,7 @@ Requirements
 * [MonkeySphere](http://web.monkeysphere.info/)
 * Python
 * make
+* g++
 * python-dev-is-python2
 
 
