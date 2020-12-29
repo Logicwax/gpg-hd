@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
-# Special thanks to Arttu Kasvio's code for starting this
-# Requirements: pycrypto, monkeysphere, gpg
+# Special thanks to Arttu Kasvio's idea of using pem2openpgp / HMAC_DRBG
 
 import os
 import subprocess
@@ -29,6 +28,7 @@ def GPG_get_masterkey():
     )
   return id.communicate()[0]
 
+
 def GPG_get_keygrips():
   # Get keygrips
   kg = subprocess.Popen( \
@@ -42,6 +42,7 @@ def GPG_get_keygrips():
     shell=True \
     )
   return kg.communicate()[0]
+
 
 def GPG_set_primary_key(keyID, timestamp):
   # Set masterkey as primary
@@ -99,6 +100,7 @@ def GPG_add_enc_subkey(parent_keyID, subkey_grip, timestamp):
   child.send(subkey_grip + "\r")
   child.interact()
 
+
 def GPG_add_sig_subkey(parent_keyID, subkey_grip, timestamp):
   # Sig subkey
   child = pexpect.spawn( \
@@ -118,6 +120,7 @@ def GPG_add_sig_subkey(parent_keyID, subkey_grip, timestamp):
   child.send(subkey_grip + "\r")
   child.interact()
 
+
 def GPG_import_keychain(keychain_filename):
     gpg_import = subprocess.Popen([ \
     'gpg', \
@@ -130,21 +133,20 @@ def GPG_import_keychain(keychain_filename):
 
 
 def GPG_create_key(user_id, seed):
-
-  rand = DRBG(hashlib.sha512(seed).digest())
+  # Create deterministic raw GPG key
+  rand = DRBG(hashlib.sha256(seed).digest())
   key = RSA.generate(4096, rand.generate)
 
   # Since we're auto-generating the key, default the creation time to UNIX time of (timeStamp)
   os.environ['PEM2OPENPGP_TIMESTAMP'] = timeStamp
-
   # pem2openpgp "Foo Bar <fbar@linux.net>" < priv.pem | gpg --import
   pem2openpgp = subprocess.Popen(['pem2openpgp', user_id], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
   gpg_id = pem2openpgp.communicate(key.exportKey(pkcs=1))[0]
 
-  os.system("mkdir -p temp")
-  os.system("chmod 700 -R temp")
+  os.system("mkdir -p temp && chmod 700 -R temp")
   os.environ['GNUPGHOME'] = "temp"
 
+  # Import RSA key into GPG (to convert it to GPG format on export)
   gpg_import = subprocess.Popen([ \
     'gpg', '--homedir','temp','--no-default-keyring','--keyring','trustedkeys.gpg','--import'], \
     stdin=subprocess.PIPE)
@@ -192,6 +194,7 @@ def GPG_export_keychain(keyID, private_filename, public_filename, ssh_filename):
   sshfile = open(ssh_filename, "w")
   sshfile.write(ssh_key)
   sshfile.close()
+
 
 def GPG_card_write(keyID):
   #Write Auth key to card

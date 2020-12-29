@@ -8,15 +8,23 @@ GPG-HD is a deterministic full GPG keychain (CA key + 3 subkeys) generator using
 Requirements
 ------------
 
-* apt-get install gpg monkeysphere python-is-python2 \
-  python-crypto python-pexpect python-ptyprocess make 
+* gpg
+* make
+* monkeysphere 
+* python-is-python2
+* python-crypto
+* python-pexpect
+* python-ptyprocess 
 
 
 Installation
 ------------
 
-`make install`  (will need sudo elevation)
+sudo apt-get install gpg monkeysphere python-is-python2  python-crypto python-pexpect python-ptyprocess make
 
+
+Or if you're really lazy: 
+`make install`  (will need sudo elevation)
 
 How to use
 ----------
