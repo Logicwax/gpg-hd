@@ -8,8 +8,8 @@ GPG-HD is a deterministic full GPG keychain (CA key + 3 subkeys) generator using
 Requirements
 ------------
 
-* apt-get install gpg monkeysphere python-is-python2 python-dev-is-python2 \
-python-crypto python-pexpect python-ptyprocess make 
+* apt-get install gpg monkeysphere python-is-python2 \
+  python-crypto python-pexpect python-ptyprocess make 
 
 
 Installation
@@ -36,7 +36,7 @@ Private and Public GPG keychain files + SSH public key are located in the `keys`
 Testing
 ----------
 
-If on non-debian system, but you have docker:
+If on a non-debian system, you can easily test with docker (needs to be installed):
 
 `make docker-test`
 
@@ -51,3 +51,7 @@ On an airgap machine, use a safe brainwallet such as [PortalWallet](https://gith
  `SEED="fetch december jazz hood pact owner cloth apart impact then person actual"`
 
  `./gpg-hd $SEED "satoshi" "satoshi@aol.com"`
+
+ or 
+
+  `./gpg-hd $SEED "satoshi" "satoshi@aol.com" --card` will create a yubikey

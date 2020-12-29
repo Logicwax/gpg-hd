@@ -4,9 +4,9 @@ RUN apt-get update
 RUN DEBIAN_FRONTEND=noninteractive \
     apt-get install -y \
     gpg \
+    git \
     monkeysphere \
     python-is-python2 \
-    python-dev-is-python2 \
     python-crypto \
     python-pexpect \
     python-ptyprocess \

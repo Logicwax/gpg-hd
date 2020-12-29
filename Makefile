@@ -6,10 +6,9 @@ install:
 	sudo apt-get install -y \
 		monkeysphere \
 		python-is-python2 \
-		python-crypto
-		python-dev-is-python2 \
+		python-crypto \
 		python-pexpect \
-		python-ptyprocess \
+		python-ptyprocess
 
 docker-test:
 	docker build -t gpg-hd .
