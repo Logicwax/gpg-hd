@@ -1,15 +1,3 @@
-[submodule "python-hmac-drbg"]
-	path = python-hmac-drbg
-	url = https://github.com/fpgaminer/python-hmac-drbg.git
 [submodule "submodules/python_hmac_drbg"]
 	path = submodules/python_hmac_drbg
 	url = https://github.com/fpgaminer/python-hmac-drbg
-[submodule "submodules/ptyprocess"]
-	path = submodules/ptyprocess
-	url = https://github.com/pexpect/ptyprocess
-[submodule "submodules/pycrypto"]
-	path = submodules/pycrypto
-	url = https://github.com/pycrypto/pycrypto.git
-[submodule "submodules/pexpect"]
-	path = submodules/pexpect
-	url = https://github.com/pexpect/pexpect

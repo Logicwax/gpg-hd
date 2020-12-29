@@ -8,12 +8,8 @@ GPG-HD is a deterministic full GPG keychain (CA key + 3 subkeys) generator using
 Requirements
 ------------
 
-* [GPG](http://gnupg.org)
-* [MonkeySphere](http://web.monkeysphere.info/)
-* Python
-* make
-* g++
-* python-dev-is-python2
+* apt-get install gpg monkeysphere python-is-python2 python-dev-is-python2 \
+python-crypto python-pexpect python-ptyprocess make 
 
 
 Installation

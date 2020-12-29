@@ -3,13 +3,15 @@ FROM ubuntu
 RUN apt-get update
 RUN DEBIAN_FRONTEND=noninteractive \
     apt-get install -y \
-    git \
-    make \
-    sudo \
-    g++ \
-    python-is-python2 \
+    gpg \
     monkeysphere \
-    python-dev-is-python2
+    python-is-python2 \
+    python-dev-is-python2 \
+    python-crypto \
+    python-pexpect \
+    python-ptyprocess \
+    make \
+    sudo
 
 RUN apt-get update
 ENV HOME /home/deterministic
