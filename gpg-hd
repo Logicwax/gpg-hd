@@ -11,10 +11,8 @@ import ptyprocess
 import pexpect
 import hashlib
 from hmac_drbg import *
+import argparse
 
-# GPG / yubikeys won't allow adding subkeys keytocard with timestamp of unix epoch 0
-# We will use timestamp of 1 (A second into 1970-01-01) to indicate this is GPG-HD generated keys
-timeStamp = "1"
 
 def GPG_get_masterkey():
   id = subprocess.Popen( \
@@ -132,41 +130,36 @@ def GPG_import_keychain(keychain_filename):
     gpg_import.communicate()
 
 
-def GPG_create_key(user_id, seed):
+def GPG_create_key(user_id, seed, timestamp):
   # Create deterministic raw GPG key
   rand = DRBG(hashlib.sha256(seed).digest())
-  key = RSA.generate(4096, rand.generate)
+  rsa_key = RSA.generate(4096, rand.generate)
 
   # Since we're auto-generating the key, default the creation time to UNIX time of (timeStamp)
-  os.environ['PEM2OPENPGP_TIMESTAMP'] = timeStamp
+  os.environ['PEM2OPENPGP_TIMESTAMP'] = timestamp
   # pem2openpgp "Foo Bar <fbar@linux.net>" < priv.pem | gpg --import
   pem2openpgp = subprocess.Popen(['pem2openpgp', user_id], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-  gpg_id = pem2openpgp.communicate(key.exportKey(pkcs=1))[0]
+  gpg_key = pem2openpgp.communicate(rsa_key.exportKey(pkcs=1))[0]
 
   os.system("mkdir -p temp && chmod 700 -R temp")
   os.environ['GNUPGHOME'] = "temp"
 
-  # Import RSA key into GPG (to convert it to GPG format on export)
+  # Import openPGP-formatted RSA key into GPG keychain
   gpg_import = subprocess.Popen([ \
     'gpg', '--homedir','temp','--no-default-keyring','--keyring','trustedkeys.gpg','--import'], \
     stdin=subprocess.PIPE)
-  gpg_import.communicate(gpg_id)
-
-  gpg_export = subprocess.Popen([ \
-    'gpg','--homedir','temp','--no-default-keyring','--keyring','trustedkeys.gpg','--export-secret-keys','-a'], \
-    stdout=subprocess.PIPE)
-  privateKey = gpg_export.communicate()[0]
+  gpg_import.communicate(gpg_key)
 
 
 def GPG_export_keychain(keyID, private_filename, public_filename, ssh_filename):
   # Export full private keychain to file
-  export = subprocess.Popen( \
+  gpg_export = subprocess.Popen( \
     "gpg --homedir temp --keyring trustedkeys.gpg --armor --export-secret-keys " \
-     + keyID, \
+    + keyID, \
     stdout=subprocess.PIPE, \
     shell=True \
     )
-  privateKeyChain = export.communicate()[0]
+  privateKeyChain = gpg_export.communicate()[0]
   keyChainfile = open(private_filename, "w")
   keyChainfile.write(privateKeyChain)
   keyChainfile.close()
@@ -243,33 +236,43 @@ def GPG_card_write(keyID):
 if __name__ == '__main__':
   os.system("rm -rf temp *.asc keys/* > /dev/null 2>&1")
   os.system("killall gpg-agent scdaemon ssh-agent > /dev/null 2>&1")
-  card_write = False
   print("\n")
+  parser = argparse.ArgumentParser()
+  parser.add_argument("seed_phrase", type=str, help="Seed value or BIP39 phrase")
+  parser.add_argument("-n", "--name", help="Full Name")
+  parser.add_argument("-e", "--email", help="Email")
+  parser.add_argument("-d", "--date", help="Key creation timestamp (in unix epoch time)")
+  parser.add_argument("-c", "--card", help="Write subkeys to Yubikey", action="store_true")
+  args = parser.parse_args()
 
-  if(len(sys.argv) == 1):
-    print ("usage: gpg-hd \"[bip39 phrase]\" [--card]")
-    print ("usage: gpg-hd \"[bip39 phrase]\" \"[name]\" \"[email]\" [--card]")
-    exit()
-  if(len(sys.argv) >= 4):
-    seed = sys.argv[1]
-    name = sys.argv[2]
-    email = sys.argv[3]
-    if(sys.argv[len(sys.argv) - 1] == "--card"):
-      card_write = True
+  if (args.name):
+    name = args.name
   else:
-    # get name/email for GPG id
     name = raw_input('Name: ')
-    email= raw_input('Email: ')
-    if(sys.argv[len(sys.argv) - 1] == "--card"):
-      card_write = True
-    else:
+  if (args.email):
+    email = args.email
+  else:
+    email = raw_input('Email: ')
+  if (args.date):
+    if(args.date == "0"):
+      print("Timestamp of 0 is not valid, please choose at least 1")
+    timestamp = args.date
+  else:
+    # GPG / yubikeys won't allow adding subkeys keytocard with timestamp of unix epoch 0
+    # We will use timestamp of 1 (A second into 1970-01-01) to indicate this is GPG-HD generated keys
+    timestamp = "1";
+  card_write = False
+  if (args.card):
+    card_write = True
+  else:
+    # Assume if they forget name or email, they probably should be asked about writing to cards
+    if (not args.email or not args.name):
       if(raw_input('Write keys to card? [y/n]: ') == 'y'):
         card_write = True
-    if(len(sys.argv) >= 2):
-      seed = sys.argv[1]
-    else:
-      seed = raw_input('Seed: ')
-
+  if (args.seed_phrase):
+    seed = args.seed_phrase
+  else:
+    seed = raw_input('Seed: ')
   user_id = '%s <%s>' % (name, email)
 
   # CA masterkey is sha256 of input seed, and the three subkeys are recursive sha256 hashes of that
@@ -279,22 +282,22 @@ if __name__ == '__main__':
   sigkey_hash = hashlib.sha256(enckey_hash).hexdigest()
 
   # Create master CA key
-  GPG_create_key(user_id, masterkey_hash)
+  GPG_create_key(user_id, masterkey_hash, timestamp)
   masterkeyID = GPG_get_masterkey()
 
   # Create 3 subkeys
-  GPG_create_key(user_id, authkey_hash)
-  GPG_create_key(user_id, enckey_hash)
-  GPG_create_key(user_id, sigkey_hash)
+  GPG_create_key(user_id, authkey_hash, timestamp)
+  GPG_create_key(user_id, enckey_hash, timestamp)
+  GPG_create_key(user_id, sigkey_hash, timestamp)
 
   # GPG needs grips for moving to subkeys
   keygrips = GPG_get_keygrips()
 
   # Assemble the keychain
-  GPG_set_primary_key(masterkeyID, timeStamp)
-  GPG_add_auth_subkey(masterkeyID, keygrips.split('\n')[1], timeStamp)
-  GPG_add_enc_subkey(masterkeyID, keygrips.split('\n')[2], timeStamp)
-  GPG_add_sig_subkey(masterkeyID, keygrips.split('\n')[3], timeStamp)
+  GPG_set_primary_key(masterkeyID, timestamp)
+  GPG_add_auth_subkey(masterkeyID, keygrips.split('\n')[1], timestamp)
+  GPG_add_enc_subkey(masterkeyID, keygrips.split('\n')[2], timestamp)
+  GPG_add_sig_subkey(masterkeyID, keygrips.split('\n')[3], timestamp)
 
   os.system("mkdir -p keys")
   keys_path = os.path.join(os.path.dirname(__file__) , "keys")

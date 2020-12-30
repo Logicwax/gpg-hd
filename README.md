@@ -29,14 +29,15 @@ Or if you're really lazy:
 How to use
 ----------
 
-`./gpg-hd`
+`./gpg-hd -h`
 
 `./gpg-hd "some awesome BIP-39 seed ..."  [--card]`
 
-`./gpg-hd "some awesome BIP-39 seed ...." "Satoshi Nakamoto" "satoshi@aol.com" [--card]`
+`./gpg-hd --name="Satoshi Nakamoto" --email="satoshi@aol.com" [--card] "some awesome BIP-39 seed phrase ..."`
 
 If the last argument is `--card` then GPG-HD will attempt to write the three subkeys (Encryption, Auth, Sig) to a card such as a Yubikey. 
 
+By default GPG-HD uses 1970-01-1 (Unix epoch of 1 second) to signal a deterministic keychain.  Optionally one can over-ride this with `--date=unix_time_in_secs`
 
 Private and Public GPG keychain files + SSH public key are located in the `keys` sub-directory.
 
@@ -58,8 +59,8 @@ On an airgap machine, use a safe brainwallet such as [PortalWallet](https://gith
 
  `SEED="fetch december jazz hood pact owner cloth apart impact then person actual"`
 
- `./gpg-hd $SEED "satoshi" "satoshi@aol.com"`
+ `./gpg-hd $SEED --name="satoshi" --email="satoshi@aol.com"`
 
  or 
 
-  `./gpg-hd $SEED "satoshi" "satoshi@aol.com" --card` will create a yubikey
+ `./gpg-hd $SEED --name="satoshi" --email="satoshi@aol.com" --card` will create a yubikey
