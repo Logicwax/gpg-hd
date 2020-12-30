@@ -1,7 +1,7 @@
 Deterministic GPG brainwallet keychain generator
 =============================
 
-GPG-HD is a deterministic full GPG keychain (CA key + 3 subkeys) generator using an input seed such as a BIP-39 phrase.  It also automates writing this keychain to Yubikeys.  For those who don't want their digital identity to be tied to physical media in case of theft/loss/or electronic failure.  This Idea was prompted by [electrum](https://electrum.org/), DJB's blog [Entropy Attacks](http://blog.cr.yp.to/20140205-entropy.html), and Arttu Kasvio's [ deterministic GPG key project.](https://github.com/arttukasvio/deterministic)
+GPG-HD is a deterministic full GPG keychain (CA key + 3 subkeys) generator using an input seed such as a BIP-39 phrase.  It also automates writing this keychain to Yubikeys and generates public SSH keys.  For those who don't want their digital identity to be tied to physical media in case of theft/loss/or electronic failure.  This Idea was prompted by [electrum](https://electrum.org/), DJB's blog [Entropy Attacks](http://blog.cr.yp.to/20140205-entropy.html), and Arttu Kasvio's [ deterministic GPG key project.](https://github.com/arttukasvio/deterministic)
 
 
 
@@ -63,4 +63,4 @@ On an airgap machine, use a safe brainwallet such as [PortalWallet](https://gith
 
  or 
 
- `./gpg-hd $SEED --name="satoshi" --email="satoshi@aol.com" --card` will create a yubikey
+ `./gpg-hd $SEED --name="satoshi" --email="satoshi@aol.com" --card` will create a yubikey (which you can also use for SSH authentication along with the exported SSH key)

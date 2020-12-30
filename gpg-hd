@@ -13,12 +13,11 @@ import hashlib
 from hmac_drbg import *
 import argparse
 
+gpg_cmdline = "gpg --homedir temp --keyring trustedkeys.gpg --no-default-keyring --expert "
+subkey_cmdline = " --command-fd=0 --status-fd=1 --pinentry-mode=loopback --edit-key "
 
 def GPG_get_masterkey():
-  id = subprocess.Popen( \
-    "gpg --homedir temp " \
-    "--keyring trustedkeys.gpg " \
-    "--list-keys | " \
+  id = subprocess.Popen(gpg_cmdline + "--list-keys | " \
     "tail -n +3 | awk \'{ print $1 }\' | grep -v \"pub\" | grep -v \"uid\" | tr -s \'\\n\' \'\\n\'", \
     stdout=subprocess.PIPE, \
     stdin=subprocess.PIPE, \
@@ -29,12 +28,8 @@ def GPG_get_masterkey():
 
 def GPG_get_keygrips():
   # Get keygrips
-  kg = subprocess.Popen( \
-    "gpg " \
-    "--homedir temp " \
-    "--keyring trustedkeys.gpg " \
-    "--with-keygrip -K | " \
-    "grep \"Keygrip\" | awk \'{ print $3 }\'", \
+  kg = subprocess.Popen(gpg_cmdline + \
+    "--with-keygrip -K | grep \"Keygrip\" | awk \'{ print $3 }\'", \
     stdout=subprocess.PIPE, \
     stdin=subprocess.PIPE, \
     shell=True \
@@ -46,16 +41,7 @@ def GPG_set_primary_key(keyID, timestamp):
   # Set masterkey as primary
   child = pexpect.spawn( \
     "bash -c \"{ echo uid 1; echo primary; echo q; echo y; echo y; } | " \
-    "gpg " \
-    "--homedir temp " \
-    "--keyring trustedkeys.gpg " \
-    "--faked-system-time=" + timestamp + \
-    " --expert " \
-    "--command-fd=0 " \
-    "--status-fd=1 " \
-    "--pinentry-mode=loopback " \
-    "--edit-key " \
-    + keyID \
+    + gpg_cmdline + "--faked-system-time=" + timestamp + subkey_cmdline + keyID \
     )
   child.interact()
 
@@ -64,16 +50,7 @@ def GPG_add_auth_subkey(parent_keyID, subkey_grip, timestamp):
   # Auth subkey
   child = pexpect.spawn( \
     "bash -c \"{ echo addkey; echo 13; echo S; echo E; echo A; echo Q; echo 0; echo save; } | " \
-    "gpg " \
-    "--homedir temp " \
-    "--keyring trustedkeys.gpg " \
-    "--faked-system-time=" + timestamp + \
-    " --expert " \
-    "--command-fd=0 " \
-    "--status-fd=1 " \
-    "--pinentry-mode=loopback " \
-    "--edit-key " \
-    + parent_keyID \
+    + gpg_cmdline + "--faked-system-time=" + timestamp + subkey_cmdline + parent_keyID \
     )
   child.expect (["Enter the keygrip: ",  pexpect.EOF, pexpect.TIMEOUT])
   child.send(subkey_grip + "\r")
@@ -84,15 +61,7 @@ def GPG_add_enc_subkey(parent_keyID, subkey_grip, timestamp):
   # Enc subkey
   child = pexpect.spawn( \
     "bash -c \"{ echo addkey; echo 13; echo S; echo Q; echo 0; echo save; } | " \
-    "gpg --homedir temp " \
-    "--keyring trustedkeys.gpg " \
-    "--faked-system-time=" + timestamp + \
-    " --expert " \
-    "--command-fd=0 " \
-    "--status-fd=1 " \
-    "--pinentry-mode=loopback " \
-    "--edit-key " \
-    + parent_keyID \
+    + gpg_cmdline + "--faked-system-time=" + timestamp + subkey_cmdline + parent_keyID \
     )
   child.expect (["Enter the keygrip: ", pexpect.EOF, pexpect.TIMEOUT])
   child.send(subkey_grip + "\r")
@@ -103,16 +72,7 @@ def GPG_add_sig_subkey(parent_keyID, subkey_grip, timestamp):
   # Sig subkey
   child = pexpect.spawn( \
     "bash -c \"{ echo addkey; echo 13; echo E; echo Q; echo 0; echo save; } | " \
-    "gpg " \
-    "--homedir temp " \
-    "--keyring trustedkeys.gpg " \
-    "--faked-system-time="  + timestamp + \
-    " --expert " \
-    "--command-fd=0 " \
-    "--status-fd=1 " \
-    "--pinentry-mode=loopback " \
-    "--edit-key " \
-    + parent_keyID \
+    + gpg_cmdline + "--faked-system-time="  + timestamp + subkey_cmdline + parent_keyID \
     )
   child.expect (["Enter the keygrip: ", pexpect.EOF, pexpect.TIMEOUT])
   child.send(subkey_grip + "\r")
@@ -120,14 +80,8 @@ def GPG_add_sig_subkey(parent_keyID, subkey_grip, timestamp):
 
 
 def GPG_import_keychain(keychain_filename):
-    gpg_import = subprocess.Popen([ \
-    'gpg', \
-    '--homedir', 'temp', \
-    '--no-default-keyring', \
-    '--keyring','trustedkeys.gpg', \
-    '--import', keychain_filename \
-    ])
-    gpg_import.communicate()
+    gpg_import = subprocess.Popen(gpg_cmdline + "--import " + keychain_filename, stdout=subprocess.PIPE, shell=True)
+    print(gpg_import.communicate())
 
 
 def GPG_create_key(user_id, seed, timestamp):
@@ -145,44 +99,28 @@ def GPG_create_key(user_id, seed, timestamp):
   os.environ['GNUPGHOME'] = "temp"
 
   # Import openPGP-formatted RSA key into GPG keychain
-  gpg_import = subprocess.Popen([ \
-    'gpg', '--homedir','temp','--no-default-keyring','--keyring','trustedkeys.gpg','--import'], \
-    stdin=subprocess.PIPE)
+  gpg_import = subprocess.Popen(gpg_cmdline + "--import", stdin=subprocess.PIPE, shell=True)
   gpg_import.communicate(gpg_key)
 
 
 def GPG_export_keychain(keyID, private_filename, public_filename, ssh_filename):
   # Export full private keychain to file
-  gpg_export = subprocess.Popen( \
-    "gpg --homedir temp --keyring trustedkeys.gpg --armor --export-secret-keys " \
-    + keyID, \
-    stdout=subprocess.PIPE, \
-    shell=True \
-    )
+  gpg_export = subprocess.Popen(gpg_cmdline + "--armor --export-secret-keys " + keyID, \
+    stdout=subprocess.PIPE, shell=True)
   privateKeyChain = gpg_export.communicate()[0]
   keyChainfile = open(private_filename, "w")
   keyChainfile.write(privateKeyChain)
   keyChainfile.close()
 
   # Export full public keychain to file
-  export = subprocess.Popen( \
-    "gpg --homedir temp --keyring trustedkeys.gpg --armor --export " \
-    + keyID, \
-    stdout=subprocess.PIPE, \
-    shell=True \
-    )
+  export = subprocess.Popen(gpg_cmdline + "--armor --export " + keyID, stdout=subprocess.PIPE, shell=True)
   publicKeyChain = export.communicate()[0]
   keyChainfile = open(public_filename, "w")
   keyChainfile.write(publicKeyChain)
   keyChainfile.close()
 
   # Export SSH public key to file
-  export = subprocess.Popen( \
-    "gpg --homedir temp --keyring trustedkeys.gpg --export-ssh-key " \
-    + keyID, \
-    stdout=subprocess.PIPE, \
-    shell=True \
-    )
+  export = subprocess.Popen(gpg_cmdline + "--export-ssh-key " + keyID, stdout=subprocess.PIPE, shell=True)
   ssh_key = export.communicate()[0]
   sshfile = open(ssh_filename, "w")
   sshfile.write(ssh_key)
@@ -190,46 +128,18 @@ def GPG_export_keychain(keyID, private_filename, public_filename, ssh_filename):
 
 
 def GPG_card_write(keyID):
+  cmd_line = gpg_cmdline + "--command-fd=0 --status-fd=1 --edit-key " + keyID
+
   #Write Auth key to card
-  child = pexpect.spawn( \
-    "bash -c \"{ echo key 1; echo keytocard; echo 3; echo y; } | " \
-    "gpg " \
-    "--homedir temp " \
-    "--keyring trustedkeys.gpg " \
-    " --expert " \
-    "--command-fd=0 " \
-    "--status-fd=1 " \
-    "--edit-key " \
-    + keyID \
-    )
+  child = pexpect.spawn("bash -c \"{ echo key 1; echo keytocard; echo 3; echo y; } | " + cmd_line)
   child.interact()
 
   #Write Enc key to card
-  child = pexpect.spawn( \
-    "bash -c \"{ echo key 2; echo keytocard; echo 2; echo y; } | " \
-    "gpg " \
-    "--homedir temp " \
-    "--keyring trustedkeys.gpg " \
-    " --expert " \
-    "--command-fd=0 " \
-    "--status-fd=1 " \
-    "--edit-key " \
-    + keyID \
-    )
+  child = pexpect.spawn("bash -c \"{ echo key 2; echo keytocard; echo 2; echo y; } | " + cmd_line)
   child.interact()
 
   #Write Sig key to card
-  child = pexpect.spawn( \
-    "bash -c \"{ echo key 3; echo keytocard; echo 1; echo y; } | " \
-    "gpg " \
-    "--homedir temp " \
-    "--keyring trustedkeys.gpg " \
-    " --expert " \
-    "--command-fd=0 " \
-    "--status-fd=1 " \
-    "--edit-key " \
-    + keyID \
-    )
+  child = pexpect.spawn("bash -c \"{ echo key 3; echo keytocard; echo 1; echo y; } | " + cmd_line)
   child.interact()
 
 
@@ -316,8 +226,7 @@ if __name__ == '__main__':
 
   # just for show...
   print("\n\n\n")
-  gpg_list = subprocess.Popen([ \
-    'gpg','--homedir','temp','--no-default-keyring','--keyring','trustedkeys.gpg','--list-keys'])
+  gpg_list = subprocess.Popen(gpg_cmdline + "--list-keys", shell=True)
   gpg_list.communicate()
   print("\n")
   print(os.path.join(keys_path, "private_keychain.asc") + " Created\n")
