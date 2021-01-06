@@ -9,12 +9,12 @@ Requirements
 ------------
 
 * gpg
-* make
 * monkeysphere 
 * python-is-python2
 * python-crypto
 * python-pexpect
 * python-ptyprocess 
+
 
 
 Installation
@@ -35,9 +35,10 @@ How to use
 
 `./gpg-hd --name="Satoshi Nakamoto" --email="satoshi@aol.com" [--card] "some awesome BIP-39 seed phrase ..."`
 
-If the last argument is `--card` then GPG-HD will attempt to write the three subkeys (Encryption, Auth, Sig) to a card such as a Yubikey. 
+If the argument `--card` is supplied then GPG-HD will attempt to write the three subkeys (Encryption, Auth, Sig) to a card such as a Yubikey. 
 
 By default GPG-HD uses 1970-01-1 (Unix epoch of 1 second) to signal a deterministic keychain.  Optionally one can over-ride this with `--date=unix_time_in_secs`
+ while key expirations are defaulted to 2 years.
 
 Private and Public GPG keychain files + SSH public key are located in the `keys` sub-directory.
 

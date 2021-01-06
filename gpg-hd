@@ -104,7 +104,7 @@ def GPG_create_key(user_id, seed, timestamp):
   gpg_import.communicate(gpg_key)
 
 
-def GPG_export_keychain(keyID, private_filename, public_filename, ssh_filename):
+def GPG_export_keychain(keyID, timestamp, private_filename, public_filename, ssh_filename):
   # Export full private keychain to file
   gpg_export = subprocess.Popen(gpg_cmdline + "--armor --export-secret-keys " + keyID, \
     stdout=subprocess.PIPE, shell=True)
@@ -121,7 +121,9 @@ def GPG_export_keychain(keyID, private_filename, public_filename, ssh_filename):
   keyChainfile.close()
 
   # Export SSH public key to file
-  export = subprocess.Popen(gpg_cmdline + "--export-ssh-key " + keyID, stdout=subprocess.PIPE, shell=True)
+  # Fake time necessary if key is already expired
+  export = subprocess.Popen(gpg_cmdline + "--faked-system-time=" + timestamp +  \
+    " --export-ssh-key " + keyID, stdout=subprocess.PIPE, shell=True)
   ssh_key = export.communicate()[0]
   sshfile = open(ssh_filename, "w")
   sshfile.write(ssh_key)
@@ -212,7 +214,7 @@ if __name__ == '__main__':
 
   os.system("mkdir -p keys")
   keys_path = os.path.join(os.path.dirname(__file__) , "keys")
-  GPG_export_keychain(masterkeyID, \
+  GPG_export_keychain(masterkeyID, timestamp, \
     os.path.join(keys_path, "private_keychain.asc"), \
     os.path.join(keys_path, "public_keychain.asc"), \
     os.path.join(keys_path, "ssh_key.asc") \
