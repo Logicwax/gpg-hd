@@ -65,3 +65,90 @@ On an airgap machine, use a safe brainwallet such as [PortalWallet](https://gith
  or 
 
  `./gpg-hd $SEED --name="satoshi" --email="satoshi@aol.com" --card` will create a yubikey (which you can also use for SSH authentication along with the exported SSH key)
+
+
+
+
+
+
+
+
+
+
+
+For MacOS
+=========
+
+Code only works with Python 2, so this is why we are using a Python 2.7 virtual environment.
+
+`Step 1: Get Homebrew`
+ 
+`Step 2: $: brew install gpg`
+ 
+`Step 3: $: brew install monkeysphere`
+ 
+`Step 4: $: cd to this directory`
+ 
+`Step 5: $: pip install virtualenv`
+ 
+`Step 6: $: virtualenv -p /usr/bin/python2.7 virtual`
+ 
+`Step 7: $: source virtual/bin/activate`
+ 
+`Step 8: $: pip install -r mac.txt`
+ 
+`Step 9: $: ./gpg-hd --name="[NAME]" --email="[EMAIL]" --date=[DATE] "[BIP-39]"`
+
+
+`Step 10: Import private key into GPG Keychain Suite, and then change primary key's expiration date to NONE.`
+ 
+`Step 11: Add a passcode to your key.`
+ 
+`Step 12: Export public key so that others can send you encrypted messages/files.`
+ 
+`Step 13: Decrypt messages/files using GPG Keychain Suite Services.`
+
+
+   Note: Public key can never be recreated again, but you can always decrypt any message/file sent to that public key with either the master key or any sub-keys generated from the master key.
+
+   Done!
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
