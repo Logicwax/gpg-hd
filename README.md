@@ -76,10 +76,10 @@ On an airgap machine, use a safe brainwallet such as [PortalWallet](https://gith
 
 
 
-Janoher
+For MacOS
 =========
 
-On MacOS:
+Code only works with Python 2, so this is why we are using a Python 2.7 virtual environment.
 
 `Step 1: Get Homebrew`
  
