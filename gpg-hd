@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 # Special thanks to Arttu Kasvio's idea of using pem2openpgp / HMAC_DRBG
 
@@ -7,7 +7,6 @@ import subprocess
 import sys
 from Crypto.PublicKey import RSA
 from Crypto.Hash import SHA256
-import ptyprocess
 import pexpect
 import hashlib
 from hmac_drbg import *
@@ -23,7 +22,7 @@ def GPG_get_masterkey():
     stdin=subprocess.PIPE, \
     shell=True \
     )
-  return id.communicate()[0]
+  return id.communicate()[0].decode('utf-8')
 
 
 def GPG_get_keygrips():
@@ -34,10 +33,10 @@ def GPG_get_keygrips():
     stdin=subprocess.PIPE, \
     shell=True \
     )
-  return kg.communicate()[0]
+  return kg.communicate()[0].decode('utf-8')
 
 
-def GPG_set_primary_key(keyID, timestamp):
+def GPG_set_primary_key(keyID):
   # Set masterkey as primary
   child = pexpect.spawn( \
     "bash -c \"{ echo uid 1; echo primary; echo q; echo y; echo y; } | " \
@@ -84,6 +83,18 @@ def GPG_import_keychain(keychain_filename):
     print(gpg_import.communicate())
 
 
+def gpg_card_factory_reset():
+  input("WARNING: This will reset yubikey and provision it with new GPG keys.  Press any-key to continue (or CTRL+C to abort)")
+  gpg_card_wakeup()
+  gpg = subprocess.Popen( \
+    "bash -c \"{ echo admin; echo factory-reset; echo y; echo yes; echo q;} | " \
+    + gpg_cmdline + " --command-fd=0 --card-edit\"", \
+    shell=True \
+    )
+  gpg.communicate()[0]
+  os.system("killall gpg-agent scdaemon ssh-agent > /dev/null 2>&1")
+
+
 def GPG_create_key(user_id, seed, timestamp):
   # Create deterministic raw GPG key
   rand = DRBG(hashlib.sha256(seed).digest())
@@ -104,18 +115,50 @@ def GPG_create_key(user_id, seed, timestamp):
   gpg_import.communicate(gpg_key)
 
 
+def gpg_card_wakeup():
+  # Stupid hack because GPG is dumb
+  gpg = subprocess.Popen( \
+    gpg_cmdline + " --card-status", \
+    shell=True \
+    )
+  gpg.communicate()[0]
+
+
+def GPG_card_write(keyID):
+  cmd_line = gpg_cmdline + "--pinentry-mode=loopback --command-fd=0 --status-fd=1 --edit-key " + keyID
+  adminpin = "12345678"
+
+  print("line: ", "bash -c \"{ echo key 1; echo keytocard; echo 3; echo '" \
+    + adminpin + "'; echo '" + adminpin + "'; echo 'save'; echo q; } | " + cmd_line)
+
+  #Write Auth key to card
+  child = pexpect.spawn("bash -c \"{ echo key 1; echo keytocard; echo 3; echo '" \
+    + adminpin + "'; echo '" + adminpin + "'; echo 'save'; echo q; } | " + cmd_line)
+  child.interact()
+
+  #Write Enc key to card
+  child = pexpect.spawn("bash -c \"{ echo key 2; echo keytocard; echo 2; echo '" \
+    + adminpin + "'; echo '" + adminpin + "'; echo 'save'; echo q; } | " + cmd_line)
+  child.interact()
+
+  #Write Sig key to card
+  child = pexpect.spawn("bash -c \"{ echo key 3; echo keytocard; echo 1; echo '" \
+    + adminpin + "'; echo '" + adminpin + "'; echo 'save'; echo q; } | " + cmd_line)
+  child.interact()
+
+
 def GPG_export_keychain(keyID, timestamp, private_filename, public_filename, ssh_filename):
   # Export full private keychain to file
   gpg_export = subprocess.Popen(gpg_cmdline + "--armor --export-secret-keys " + keyID, \
     stdout=subprocess.PIPE, shell=True)
-  privateKeyChain = gpg_export.communicate()[0]
+  privateKeyChain = gpg_export.communicate()[0].decode('utf-8')
   keyChainfile = open(private_filename, "w")
   keyChainfile.write(privateKeyChain)
   keyChainfile.close()
 
   # Export full public keychain to file
   export = subprocess.Popen(gpg_cmdline + "--armor --export " + keyID, stdout=subprocess.PIPE, shell=True)
-  publicKeyChain = export.communicate()[0]
+  publicKeyChain = export.communicate()[0].decode('utf-8')
   keyChainfile = open(public_filename, "w")
   keyChainfile.write(publicKeyChain)
   keyChainfile.close()
@@ -124,26 +167,10 @@ def GPG_export_keychain(keyID, timestamp, private_filename, public_filename, ssh
   # Fake time necessary if key is already expired
   export = subprocess.Popen(gpg_cmdline + "--faked-system-time=" + timestamp +  \
     " --export-ssh-key " + keyID, stdout=subprocess.PIPE, shell=True)
-  ssh_key = export.communicate()[0]
+  ssh_key = export.communicate()[0].decode('utf-8')
   sshfile = open(ssh_filename, "w")
   sshfile.write(ssh_key)
   sshfile.close()
-
-
-def GPG_card_write(keyID):
-  cmd_line = gpg_cmdline + "--command-fd=0 --status-fd=1 --edit-key " + keyID
-
-  #Write Auth key to card
-  child = pexpect.spawn("bash -c \"{ echo key 1; echo keytocard; echo 3; echo y; } | " + cmd_line)
-  child.interact()
-
-  #Write Enc key to card
-  child = pexpect.spawn("bash -c \"{ echo key 2; echo keytocard; echo 2; echo y; } | " + cmd_line)
-  child.interact()
-
-  #Write Sig key to card
-  child = pexpect.spawn("bash -c \"{ echo key 3; echo keytocard; echo 1; echo y; } | " + cmd_line)
-  child.interact()
 
 
 if __name__ == '__main__':
@@ -189,10 +216,10 @@ if __name__ == '__main__':
   user_id = '%s <%s>' % (name, email)
 
   # CA masterkey is sha256 of input seed, and the three subkeys are recursive sha256 hashes of that
-  masterkey_hash = hashlib.sha256(seed.encode()).hexdigest()
-  authkey_hash = hashlib.sha256(masterkey_hash).hexdigest()
-  enckey_hash = hashlib.sha256(authkey_hash).hexdigest()
-  sigkey_hash = hashlib.sha256(enckey_hash).hexdigest()
+  masterkey_hash = hashlib.sha256(seed.encode()).hexdigest().encode()
+  authkey_hash = hashlib.sha256(masterkey_hash).hexdigest().encode()
+  enckey_hash = hashlib.sha256(authkey_hash).hexdigest().encode()
+  sigkey_hash = hashlib.sha256(enckey_hash).hexdigest().encode()
 
   # Create master CA key
   GPG_create_key(user_id, masterkey_hash, timestamp)
@@ -207,7 +234,7 @@ if __name__ == '__main__':
   keygrips = GPG_get_keygrips()
 
   # Assemble the keychain
-  GPG_set_primary_key(masterkeyID, timestamp)
+  GPG_set_primary_key(masterkeyID)
   GPG_add_auth_subkey(masterkeyID, keygrips.split('\n')[1], timestamp)
   GPG_add_enc_subkey(masterkeyID, keygrips.split('\n')[2], timestamp)
   GPG_add_sig_subkey(masterkeyID, keygrips.split('\n')[3], timestamp)
@@ -237,6 +264,7 @@ if __name__ == '__main__':
   print(os.path.join(keys_path, "ssh_key.asc") + " Created\n")
 
   if(card_write):
+    gpg_card_factory_reset()
     GPG_card_write(masterkeyID)
 
   os.system("rm -rf temp")

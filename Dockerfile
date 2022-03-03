@@ -1,4 +1,5 @@
-FROM ubuntu
+# Ubuntu focal as of 03/03/2022
+FROM ubuntu@sha256:669e010b58baf5beb2836b253c1fd5768333f0d1dbcb834f7c07a4dc93f474be
 
 RUN apt-get update
 RUN DEBIAN_FRONTEND=noninteractive \
@@ -6,11 +7,8 @@ RUN DEBIAN_FRONTEND=noninteractive \
     gpg \
     git \
     monkeysphere \
-    python-is-python2 \
-    python-crypto \
-    python-pexpect \
-    python-ptyprocess \
-    make
+    python3-crypto \
+    python3-pexpect
 
 ENV HOME /home/deterministic
 RUN useradd -m -s /bin/bash deterministic
@@ -18,6 +16,6 @@ RUN useradd -m -s /bin/bash deterministic
 WORKDIR /home/deterministic
 USER deterministic
 WORKDIR /home/deterministic
-RUN git clone https://github.com/Logicwax/gpg-hd
-WORKDIR /home/deterministic/gpg-hd
+COPY . /home/deterministic/
+WORKDIR /home/deterministic/
 RUN mkdir -p keys

@@ -10,17 +10,14 @@ Requirements
 
 * gpg
 * monkeysphere 
-* python-is-python2
-* python-crypto
-* python-pexpect
-* python-ptyprocess 
-
+* python3-crypto
+* python3-pexpect
 
 
 Installation
 ------------
 
-sudo apt-get install gpg monkeysphere python-is-python2  python-crypto python-pexpect python-ptyprocess make
+sudo apt-get install gpg monkeysphere python3-crypto python3-pexpect make
 
 
 Or if you're really lazy: 
