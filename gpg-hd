@@ -48,7 +48,7 @@ def GPG_set_primary_key(keyID):
 def GPG_add_auth_subkey(parent_keyID, subkey_grip, timestamp):
   # Auth subkey
   child = pexpect.spawn( \
-    "bash -c \"{ echo addkey; echo 13; echo S; echo E; echo A; echo Q; echo 2y; echo save; } | " \
+    "bash -c \"{ echo addkey; echo 13; echo S; echo E; echo A; echo Q; echo 0; echo save; } | " \
     + gpg_cmdline + "--faked-system-time=" + timestamp + subkey_cmdline + parent_keyID \
     )
   child.expect (["Enter the keygrip: ",  pexpect.EOF, pexpect.TIMEOUT])
@@ -59,7 +59,7 @@ def GPG_add_auth_subkey(parent_keyID, subkey_grip, timestamp):
 def GPG_add_enc_subkey(parent_keyID, subkey_grip, timestamp):
   # Enc subkey
   child = pexpect.spawn( \
-    "bash -c \"{ echo addkey; echo 13; echo S; echo Q; echo 2y; echo save; } | " \
+    "bash -c \"{ echo addkey; echo 13; echo S; echo Q; echo 0; echo save; } | " \
     + gpg_cmdline + "--faked-system-time=" + timestamp + subkey_cmdline + parent_keyID \
     )
   child.expect (["Enter the keygrip: ", pexpect.EOF, pexpect.TIMEOUT])
@@ -70,7 +70,7 @@ def GPG_add_enc_subkey(parent_keyID, subkey_grip, timestamp):
 def GPG_add_sig_subkey(parent_keyID, subkey_grip, timestamp):
   # Sig subkey
   child = pexpect.spawn( \
-    "bash -c \"{ echo addkey; echo 13; echo E; echo Q; echo 2y; echo save; } | " \
+    "bash -c \"{ echo addkey; echo 13; echo E; echo Q; echo 0; echo save; } | " \
     + gpg_cmdline + "--faked-system-time="  + timestamp + subkey_cmdline + parent_keyID \
     )
   child.expect (["Enter the keygrip: ", pexpect.EOF, pexpect.TIMEOUT])
@@ -102,7 +102,6 @@ def GPG_create_key(user_id, seed, timestamp):
 
   # Since we're auto-generating the key, default the creation time to UNIX time of (timeStamp)
   os.environ['PEM2OPENPGP_TIMESTAMP'] = timestamp
-  os.environ['PEM2OPENPGP_EXPIRATION'] = "63113852"
   # pem2openpgp "Foo Bar <fbar@linux.net>" < priv.pem | gpg --import
   pem2openpgp = subprocess.Popen(['pem2openpgp', user_id], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
   gpg_key = pem2openpgp.communicate(rsa_key.exportKey(pkcs=1))[0]
@@ -268,3 +267,4 @@ if __name__ == '__main__':
     GPG_card_write(masterkeyID)
 
   os.system("rm -rf temp")
+  
