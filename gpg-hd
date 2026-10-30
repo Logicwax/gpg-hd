@@ -339,13 +339,26 @@ if __name__ == '__main__':
   init_work_dir()
   keys_path = output_dir()
   print("\n")
-  parser = argparse.ArgumentParser()
-  parser.add_argument("seed_phrase", type=str, help="Seed value or BIP39 phrase")
+  parser = argparse.ArgumentParser(
+    formatter_class=argparse.RawDescriptionHelpFormatter,
+    description="Derive a complete GPG keychain (master, auth, encryption and signing keys) from a seed phrase.\n"
+                "The same seed, name, email and date always produce the same keys.",
+    epilog="""examples:
+  Keychain files only:
+    gpg-hd "correct horse battery staple" -n "Jane Doe" -e jane@example.com
+
+  Also write the auth/encryption/signing subkeys to a YubiKey (-c), and the master key
+  to a second YubiKey (-m); each card is reset first:
+    gpg-hd "correct horse battery staple" -n "Jane Doe" -e jane@example.com -c -m
+
+Keys are written to ./keys/private (keep offline) and ./keys/public (safe for online machines).
+Quote the seed phrase so it is passed as a single argument.""")
+  parser.add_argument("seed_phrase", type=str, help="Seed value or BIP39 phrase (quoted)")
   parser.add_argument("-n", "--name", help="Full Name")
   parser.add_argument("-e", "--email", help="Email")
-  parser.add_argument("-d", "--date", help="Key creation timestamp (in unix epoch time)")
-  parser.add_argument("-c", "--card", help="Write subkeys to Yubikey", action="store_true")
-  parser.add_argument("-m", "--card-master", help="Write master key to a (separate) Yubikey", action="store_true")
+  parser.add_argument("-d", "--date", help="Key creation timestamp in unix epoch time (default: 1)")
+  parser.add_argument("-c", "--card", help="Write the subkeys (auth, encryption, signing) to a YubiKey; the card is reset first", action="store_true")
+  parser.add_argument("-m", "--card-master", help="Write the master key to a separate YubiKey; the card is reset first", action="store_true")
   args = parser.parse_args()
 
   if (args.name):
