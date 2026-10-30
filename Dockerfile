@@ -1,21 +1,21 @@
-# Ubuntu focal as of 03/03/2022
-FROM ubuntu@sha256:669e010b58baf5beb2836b253c1fd5768333f0d1dbcb834f7c07a4dc93f474be
+# Ubuntu 26.04.1 LTS (resolute) as of 10/30/2026
+FROM ubuntu@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c
 
-RUN apt-get update
-RUN DEBIAN_FRONTEND=noninteractive \
-    apt-get install -y \
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y \
     gpg \
-    git \
-    monkeysphere \
-    python3-crypto \
-    python3-pexpect
+    python3 \
+    pcscd \
+    python3-ykman \
+    python3-cryptography \
+    && rm -rf /var/lib/apt/lists/*
 
-ENV HOME /home/deterministic
-RUN useradd -m -s /bin/bash deterministic
+ENV HOME=/home/deterministic
+# uid 1000 like the user on a typical host, so a mounted keys/ directory is writable (the base image's own
+# default user has it, hence the userdel)
+RUN userdel -r ubuntu 2>/dev/null; useradd -m -u 1000 -s /bin/bash deterministic
 
-WORKDIR /home/deterministic
 USER deterministic
 WORKDIR /home/deterministic
-COPY . /home/deterministic/
-WORKDIR /home/deterministic/
+COPY --chown=deterministic:deterministic . /home/deterministic/
 RUN mkdir -p keys

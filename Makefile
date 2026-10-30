@@ -1,4 +1,4 @@
-.PHONY: install docker-test clean
+.PHONY: install test docker-test clean
 
 default: install
 
@@ -8,13 +8,17 @@ clean:
 install:
 	sudo apt-get install -y \
 		gpg \
-		monkeysphere \
-		python3-crypto \
-		python3-pexpect \
+		python3 \
+		pcscd \
+		python3-ykman \
+		python3-cryptography
+
+test:
+	python3 -B tests/test_rsa_derive.py
 
 docker-test:
 	docker build -t gpg-hd .
-	mkdir -p keys
+	rm -rf keys && mkdir -p keys
 	docker run \
 		--rm \
 		-v "$$PWD/keys:/home/deterministic/keys" \

@@ -1,19 +1,65 @@
 #!/usr/bin/env python3
 
-# Special thanks to Arttu Kasvio's idea of using pem2openpgp / HMAC_DRBG
-
 import os
 import subprocess
 import sys
-from Crypto.PublicKey import RSA
-from Crypto.Hash import SHA256
-import pexpect
 import hashlib
 from hmac_drbg import *
+import rsa_derive
+import time
+from contextlib import contextmanager
+
+try:
+  from cryptography.hazmat.primitives import serialization
+  from cryptography.hazmat.primitives.asymmetric import ec, ed25519, rsa
+  from ykman.device import list_all_devices
+  from yubikit.core.smartcard import SmartCardConnection
+  from yubikit.openpgp import KEY_REF, OpenPgpSession
+  HAVE_CARD_LIBS = True
+except ImportError:
+  HAVE_CARD_LIBS = False
+import shutil
+import tempfile
 import argparse
 
-gpg_cmdline = "gpg --homedir temp --keyring trustedkeys.gpg --no-default-keyring --expert "
-subkey_cmdline = " --command-fd=0 --status-fd=1 --pinentry-mode=loopback --edit-key "
+# Scratch GNUPGHOME (set up by init_work_dir): a private temp directory, so it does not matter whether the
+# directory gpg-hd is run from is writable.
+TEMP = None
+gpg_cmdline = None
+
+
+def init_work_dir():
+  global TEMP, gpg_cmdline
+  TEMP = tempfile.mkdtemp(prefix="gpg-hd-", dir="/dev/shm" if os.path.isdir("/dev/shm") else None)
+  os.chmod(TEMP, 0o700)
+  os.environ['GNUPGHOME'] = TEMP
+  gpg_cmdline = "gpg --homedir " + TEMP + " --keyring trustedkeys.gpg --no-default-keyring --expert "
+
+
+def reset_work_dir():
+  # GPG is lame and doesn't like when we remove old keyIDs that are now attached to subkeys,
+  # so start over with a fresh keydb
+  subprocess.run(["gpgconf", "--homedir", TEMP, "--kill", "all"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+  shutil.rmtree(TEMP, ignore_errors=True)
+  os.makedirs(TEMP, mode=0o700)
+
+
+def remove_work_dir():
+  subprocess.run(["gpgconf", "--homedir", TEMP, "--kill", "all"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+  shutil.rmtree(TEMP, ignore_errors=True)
+
+
+def output_dir():
+  """keys/ in the directory gpg-hd was run from, or in the home directory if that one is not writable."""
+  for base in (os.getcwd(), os.path.expanduser("~")):
+    path = os.path.join(base, "keys")
+    try:
+      os.makedirs(path, exist_ok=True)
+      tempfile.TemporaryFile(dir=path).close()
+      return path
+    except OSError:
+      continue
+  raise SystemExit("Cannot write a keys directory in the current directory or the home directory.")
 
 def GPG_get_masterkey():
   id = subprocess.Popen(gpg_cmdline + "--list-keys | " \
@@ -22,7 +68,7 @@ def GPG_get_masterkey():
     stdin=subprocess.PIPE, \
     shell=True \
     )
-  return id.communicate()[0].decode('utf-8')
+  return id.communicate()[0].decode('utf-8').strip()
 
 
 def GPG_get_keygrips():
@@ -36,46 +82,70 @@ def GPG_get_keygrips():
   return kg.communicate()[0].decode('utf-8')
 
 
+def gpg_edit_key(key_id, answers, timestamp=None):
+  """Run `gpg --edit-key`, answering each prompt by the tag gpg announces on --status-fd.
+
+  `answers` maps a tag to the lines to send for successive prompts of that tag. A prompt without an answer
+  left aborts, so an unexpected gpg menu is never answered by accident (the menu texts and the number of
+  PIN/confirmation prompts differ between gpg versions, which is why blind scripted answers break).
+  """
+  pending = {tag: list(lines) for tag, lines in answers.items()}
+  status_r, status_w = os.pipe()
+  cmd = ["gpg", "--homedir", TEMP, "--keyring", "trustedkeys.gpg", "--no-default-keyring", "--expert",
+         "--pinentry-mode=loopback", "--no-tty"]
+  if timestamp:
+    # The trailing "!" freezes gpg's clock. Without it the faked time keeps ticking from `timestamp`, so a slow
+    # moment (agent start, a busy machine) between gpg starting and the subkey being made gives it a creation
+    # time of timestamp+1 or more, which changes its fingerprint: the same seed would not give the same keychain.
+    cmd.append("--faked-system-time=" + timestamp + "!")
+  cmd += ["--command-fd=0", "--status-fd=" + str(status_w), "--edit-key", key_id]
+  gpg = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
+    pass_fds=(status_w,))
+  os.close(status_w)
+  try:
+    with os.fdopen(status_r) as status:
+      for line in status:
+        fields = line.split()
+        if len(fields) >= 3 and fields[1] in ("GET_LINE", "GET_BOOL", "GET_HIDDEN"):
+          tag = fields[2]
+          if not pending.get(tag):
+            gpg.kill()
+            raise RuntimeError("unexpected gpg prompt '" + tag + "' while editing key " + key_id)
+          gpg.stdin.write((pending[tag].pop(0) + "\n").encode())
+          gpg.stdin.flush()
+  finally:
+    gpg.stdin.close()
+    error = gpg.stderr.read().decode(errors="replace")
+    returncode = gpg.wait()
+  if returncode != 0:
+    raise RuntimeError("gpg --edit-key " + key_id + " failed: " + error)
+
+
 def GPG_set_primary_key(keyID):
   # Set masterkey as primary
-  child = pexpect.spawn( \
-    "bash -c \"{ echo uid 1; echo primary; echo q; echo y; echo y; } | " \
-    + gpg_cmdline + subkey_cmdline + keyID \
-    )
-  child.interact()
+  gpg_edit_key(keyID, {"keyedit.prompt": ["uid 1", "primary", "save"]})
+
+
+def GPG_add_existing_subkey(parent_keyID, subkey_grip, timestamp, toggles):
+  # addkey -> (13) Existing key -> keygrip -> toggle capabilities off/on -> never expires
+  gpg_edit_key(parent_keyID, {
+    "keyedit.prompt": ["addkey", "save"], "keygen.algo": ["13"], "keygen.keygrip": [subkey_grip],
+    "keygen.flags": toggles + ["Q"], "keygen.valid": ["0"]}, timestamp)
 
 
 def GPG_add_auth_subkey(parent_keyID, subkey_grip, timestamp):
-  # Auth subkey
-  child = pexpect.spawn( \
-    "bash -c \"{ echo addkey; echo 13; echo S; echo E; echo A; echo Q; echo 0; echo save; } | " \
-    + gpg_cmdline + "--faked-system-time=" + timestamp + subkey_cmdline + parent_keyID \
-    )
-  child.expect (["Enter the keygrip: ",  pexpect.EOF, pexpect.TIMEOUT])
-  child.send(subkey_grip + "\r")
-  child.interact()
+  # Auth subkey: sign and encrypt off, authenticate on
+  GPG_add_existing_subkey(parent_keyID, subkey_grip, timestamp, ["S", "E", "A"])
 
 
 def GPG_add_enc_subkey(parent_keyID, subkey_grip, timestamp):
-  # Enc subkey
-  child = pexpect.spawn( \
-    "bash -c \"{ echo addkey; echo 13; echo S; echo Q; echo 0; echo save; } | " \
-    + gpg_cmdline + "--faked-system-time=" + timestamp + subkey_cmdline + parent_keyID \
-    )
-  child.expect (["Enter the keygrip: ", pexpect.EOF, pexpect.TIMEOUT])
-  child.send(subkey_grip + "\r")
-  child.interact()
+  # Enc subkey: sign off
+  GPG_add_existing_subkey(parent_keyID, subkey_grip, timestamp, ["S"])
 
 
 def GPG_add_sig_subkey(parent_keyID, subkey_grip, timestamp):
-  # Sig subkey
-  child = pexpect.spawn( \
-    "bash -c \"{ echo addkey; echo 13; echo E; echo Q; echo 0; echo save; } | " \
-    + gpg_cmdline + "--faked-system-time="  + timestamp + subkey_cmdline + parent_keyID \
-    )
-  child.expect (["Enter the keygrip: ", pexpect.EOF, pexpect.TIMEOUT])
-  child.send(subkey_grip + "\r")
-  child.interact()
+  # Sig subkey: encrypt off
+  GPG_add_existing_subkey(parent_keyID, subkey_grip, timestamp, ["E"])
 
 
 def GPG_import_keychain(keychain_filename):
@@ -83,67 +153,148 @@ def GPG_import_keychain(keychain_filename):
     print(gpg_import.communicate())
 
 
-def gpg_card_factory_reset():
-  input("WARNING: This will reset yubikey and provision it with new GPG keys.  Press any-key to continue (or CTRL+C to abort)")
-  gpg_card_wakeup()
-  gpg = subprocess.Popen( \
-    "bash -c \"{ echo admin; echo factory-reset; echo y; echo yes; echo q;} | " \
-    + gpg_cmdline + " --command-fd=0 --card-edit\"", \
-    shell=True \
-    )
-  gpg.communicate()[0]
-  os.system("killall gpg-agent scdaemon ssh-agent > /dev/null 2>&1")
-
-
 def GPG_create_key(user_id, seed, timestamp):
   # Create deterministic raw GPG key
   rand = DRBG(hashlib.sha256(seed).digest())
-  rsa_key = RSA.generate(4096, rand.generate)
+  rsa_key = rsa_derive.generate(4096, rand.generate)
 
   # Since we're auto-generating the key, default the creation time to UNIX time of (timeStamp)
-  os.environ['PEM2OPENPGP_TIMESTAMP'] = timestamp
-  # pem2openpgp "Foo Bar <fbar@linux.net>" < priv.pem | gpg --import
-  pem2openpgp = subprocess.Popen(['pem2openpgp', user_id], stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-  gpg_key = pem2openpgp.communicate(rsa_key.exportKey(pkcs=1))[0]
-
-  os.system("mkdir -p temp && chmod 700 -R temp")
-  os.environ['GNUPGHOME'] = "temp"
+  gpg_key = rsa_key.openpgp_secret_key(user_id, int(timestamp))
 
   # Import openPGP-formatted RSA key into GPG keychain
   gpg_import = subprocess.Popen(gpg_cmdline + "--import", stdin=subprocess.PIPE, shell=True)
   gpg_import.communicate(gpg_key)
+  return rsa_key
 
 
-def gpg_card_wakeup():
-  # Stupid hack because GPG is dumb
-  gpg = subprocess.Popen( \
-    gpg_cmdline + " --card-status", \
-    shell=True \
-    )
-  gpg.communicate()[0]
+# ---------------------------------------------------------------------------
+# Smartcard, driven directly through the card's OpenPGP applet (yubikit); only needed for --card
+# ---------------------------------------------------------------------------
+
+DEFAULT_ADMIN_PIN = "12345678"
+SLOT = {"sig": KEY_REF.SIG, "enc": KEY_REF.DEC, "aut": KEY_REF.AUT} if HAVE_CARD_LIBS else {}
+SLOT_NAME = {KEY_REF.SIG: "signature", KEY_REF.DEC: "encryption", KEY_REF.AUT: "authentication"} if HAVE_CARD_LIBS else {}
 
 
-def GPG_card_write(keyID):
-  cmd_line = gpg_cmdline + "--pinentry-mode=loopback --command-fd=0 --status-fd=1 --edit-key " + keyID
-  adminpin = "12345678"
+def say(message):
+  """Progress line for the operator, shown immediately."""
+  print(message, flush=True)
 
-  print("line: ", "bash -c \"{ echo key 1; echo keytocard; echo 3; echo '" \
-    + adminpin + "'; echo '" + adminpin + "'; echo 'save'; echo q; } | " + cmd_line)
 
-  #Write Auth key to card
-  child = pexpect.spawn("bash -c \"{ echo key 1; echo keytocard; echo 3; echo '" \
-    + adminpin + "'; echo '" + adminpin + "'; echo 'save'; echo q; } | " + cmd_line)
-  child.interact()
+def kill_daemons():
+  """Stop any gpg-agent, scdaemon or ssh-agent a previous script left behind.
 
-  #Write Enc key to card
-  child = pexpect.spawn("bash -c \"{ echo key 2; echo keytocard; echo 2; echo '" \
-    + adminpin + "'; echo '" + adminpin + "'; echo 'save'; echo q; } | " + cmd_line)
-  child.interact()
+  A stale scdaemon holds the card exclusively and a hung agent blocks every later gpg call, so this runs
+  before each card access and at the start and end of the scripts.
+  """
+  subprocess.run(["killall", "gpg-agent", "scdaemon", "ssh-agent"],
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-  #Write Sig key to card
-  child = pexpect.spawn("bash -c \"{ echo key 3; echo keytocard; echo 1; echo '" \
-    + adminpin + "'; echo '" + adminpin + "'; echo 'save'; echo q; } | " + cmd_line)
-  child.interact()
+
+def _single_device():
+  """The one attached YubiKey, asking again until exactly one is present.
+
+  Several keys are refused so a factory reset can never hit the wrong one; none (or several) just means the
+  user has to insert (or remove) a card and press enter, as many times as it takes.
+  """
+  while True:
+    devices = list_all_devices()
+    if len(devices) == 1:
+      return devices[0][0]
+    if devices:
+      input("Found %d YubiKeys, expected exactly one. Please remove the others, then press enter " \
+        % len(devices))
+    else:
+      input("No YubiKey found. Please insert a Yubikey/smartcard, then press enter ")
+
+
+def _smartcard_device():
+  """The one attached YubiKey, once its smartcard interface is visible through pcscd.
+
+  If a gpg scdaemon grabs a card the moment it is inserted, pcscd fails to claim it (LIBUSB_ERROR_BUSY)
+  and keeps no reader for it until it is restarted; the key then only shows up on its HID side and
+  yubikit reports "Unsupported Connection type".  A fresh pcscd rescans the bus, so restart it (as the
+  old scripts did with `sudo killall pcscd`) and look again.
+  """
+  kill_daemons()
+  for attempt in range(3):
+    device = _single_device()
+    if device.supports_connection(SmartCardConnection):
+      return device
+    if attempt == 0:
+      subprocess.run(["sudo", "killall", "pcscd"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    else:
+      input("Please run 'sudo systemctl restart pcscd' in another terminal, then press enter ")
+    time.sleep(2)
+    kill_daemons()
+  raise SystemExit("The YubiKey's smartcard interface is still not available through pcscd.")
+
+
+@contextmanager
+def card():
+  """Open the OpenPGP applet of the one and only attached YubiKey."""
+  with _smartcard_device().open_connection(SmartCardConnection) as connection:
+    yield OpenPgpSession(connection)
+
+
+def card_factory_reset(session):
+  say("Resetting card to factory settings ...")
+  session.reset()
+
+
+def card_write_key(session, slot, key, creation_time, fingerprint):
+  """Import `key` into `slot` and record the metadata gpg needs to match card and certificate."""
+  say("Writing %s key to card ..." % SLOT_NAME[slot])
+  session.put_key(slot, key)
+  session.set_generation_time(slot, creation_time)
+  session.set_fingerprint(slot, fingerprint)
+
+
+def _public_bytes(public_key):
+  if isinstance(public_key, rsa.RSAPublicKey):
+    n = public_key.public_numbers()
+    return b"rsa" + n.n.to_bytes(512, "big") + n.e.to_bytes(4, "big")
+  if isinstance(public_key, ed25519.Ed25519PublicKey):
+    return public_key.public_bytes_raw()
+  return public_key.public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
+
+
+def card_verify(session, slots):
+  """Read the card back: for each {slot: parsed key} the fingerprint, generation time and public key must match."""
+  say("Verifying card contents ...")
+  fingerprints = session.get_fingerprints()
+  times = session.get_generation_times()
+  for slot, key in slots.items():
+    if fingerprints[slot] != bytes.fromhex(key["fpr"]):
+      raise SystemExit("Card verification failed: %s fingerprint mismatch" % slot.name)
+    if times[slot] != key["created"]:
+      raise SystemExit("Card verification failed: %s generation time mismatch" % slot.name)
+    if _public_bytes(session.get_public_key(slot)) != _public_bytes(key["key"].public_key()):
+      raise SystemExit("Card verification failed: %s public key mismatch" % slot.name)
+
+
+def card_private_key(rsa_key):
+  """The derived key as a cryptography RSA private key, which is what yubikit imports."""
+  return rsa.RSAPrivateNumbers(rsa_key.p, rsa_key.q, rsa_key.d,
+    rsa.rsa_crt_dmp1(rsa_key.d, rsa_key.p), rsa.rsa_crt_dmq1(rsa_key.d, rsa_key.q),
+    rsa.rsa_crt_iqmp(rsa_key.p, rsa_key.q), rsa.RSAPublicNumbers(rsa_key.e, rsa_key.n)).private_key()
+
+
+def GPG_card_write(keys, timestamp, what):
+  """Factory reset the inserted card and write `keys` ({"aut"|"enc"|"sig": key}) to it, then read it back."""
+  if not HAVE_CARD_LIBS:
+    raise SystemExit("--card and --card-master need python3-ykman and python3-cryptography.")
+  created = int(timestamp)
+  slots = {SLOT[role]: {"key": card_private_key(key), "created": created,
+                        "fpr": key.fingerprint(created).hex().upper()} for role, key in keys.items()}
+  print("\nPlease insert the Yubikey/smartcard for the " + what + ".")
+  input("WARNING: This will reset yubikey and provision it with new GPG keys.  Press any-key to continue (or CTRL+C to abort)")
+  with card() as session:
+    card_factory_reset(session)
+    session.verify_admin(DEFAULT_ADMIN_PIN)
+    for slot, key in slots.items():
+      card_write_key(session, slot, key["key"], key["created"], bytes.fromhex(key["fpr"]))
+    card_verify(session, slots)
 
 
 def GPG_export_keychain(keyID, timestamp, private_filename, public_filename, ssh_filename):
@@ -173,8 +324,13 @@ def GPG_export_keychain(keyID, timestamp, private_filename, public_filename, ssh
 
 
 if __name__ == '__main__':
-  os.system("rm -rf temp *.asc keys/* > /dev/null 2>&1")
   os.system("killall gpg-agent scdaemon ssh-agent > /dev/null 2>&1")
+  init_work_dir()
+  keys_path = output_dir()
+  outputs = [os.path.join(keys_path, f) for f in ("private_keychain.asc", "public_keychain.asc", "ssh_key.asc")]
+  existing = [f for f in outputs if os.path.exists(f)]
+  if existing:
+    raise SystemExit("These files already exist, move them away first:\n  " + "\n  ".join(existing))
   print("\n")
   parser = argparse.ArgumentParser()
   parser.add_argument("seed_phrase", type=str, help="Seed value or BIP39 phrase")
@@ -182,16 +338,17 @@ if __name__ == '__main__':
   parser.add_argument("-e", "--email", help="Email")
   parser.add_argument("-d", "--date", help="Key creation timestamp (in unix epoch time)")
   parser.add_argument("-c", "--card", help="Write subkeys to Yubikey", action="store_true")
+  parser.add_argument("-m", "--card-master", help="Write master key to a (separate) Yubikey", action="store_true")
   args = parser.parse_args()
 
   if (args.name):
     name = args.name
   else:
-    name = raw_input('Name: ')
+    name = input('Name: ')
   if (args.email):
     email = args.email
   else:
-    email = raw_input('Email: ')
+    email = input('Email: ')
   if (args.date):
     if(args.date == "0"):
       print("Timestamp of 0 is not valid, please choose at least 1")
@@ -205,13 +362,13 @@ if __name__ == '__main__':
     card_write = True
   else:
     # Assume if they forget name or email, they probably should be asked about writing to cards
-    if (not args.email or not args.name):
-      if(raw_input('Write keys to card? [y/n]: ') == 'y'):
+    if (not args.card_master and (not args.email or not args.name)):
+      if(input('Write keys to card? [y/n]: ') == 'y'):
         card_write = True
   if (args.seed_phrase):
     seed = args.seed_phrase
   else:
-    seed = raw_input('Seed: ')
+    seed = input('Seed: ')
   user_id = '%s <%s>' % (name, email)
 
   # CA masterkey is sha256 of input seed, and the three subkeys are recursive sha256 hashes of that
@@ -221,13 +378,13 @@ if __name__ == '__main__':
   sigkey_hash = hashlib.sha256(enckey_hash).hexdigest().encode()
 
   # Create master CA key
-  GPG_create_key(user_id, masterkey_hash, timestamp)
+  master_key = GPG_create_key(user_id, masterkey_hash, timestamp)
   masterkeyID = GPG_get_masterkey()
 
   # Create 3 subkeys
-  GPG_create_key(user_id, authkey_hash, timestamp)
-  GPG_create_key(user_id, enckey_hash, timestamp)
-  GPG_create_key(user_id, sigkey_hash, timestamp)
+  auth_key = GPG_create_key(user_id, authkey_hash, timestamp)
+  enc_key = GPG_create_key(user_id, enckey_hash, timestamp)
+  sig_key = GPG_create_key(user_id, sigkey_hash, timestamp)
 
   # GPG needs grips for moving to subkeys
   keygrips = GPG_get_keygrips()
@@ -238,18 +395,13 @@ if __name__ == '__main__':
   GPG_add_enc_subkey(masterkeyID, keygrips.split('\n')[2], timestamp)
   GPG_add_sig_subkey(masterkeyID, keygrips.split('\n')[3], timestamp)
 
-  os.system("mkdir -p keys")
-  keys_path = os.path.join(os.path.dirname(__file__) , "keys")
   GPG_export_keychain(masterkeyID, timestamp, \
     os.path.join(keys_path, "private_keychain.asc"), \
     os.path.join(keys_path, "public_keychain.asc"), \
     os.path.join(keys_path, "ssh_key.asc") \
     )
 
-  # GPG is lame and doesn't like when we remove old keyIDs that are now attached to subkeys,
-  # so lets start over with fresh keydb
-  os.system("rm -rf temp && mkdir -p temp && chmod 700 -R temp")
-  os.environ['GNUPGHOME'] = "temp"
+  reset_work_dir()
 
   GPG_import_keychain(os.path.join(keys_path, "private_keychain.asc"))
 
@@ -262,9 +414,12 @@ if __name__ == '__main__':
   print(os.path.join(keys_path, "public_keychain.asc") + " Created\n")
   print(os.path.join(keys_path, "ssh_key.asc") + " Created\n")
 
+  # The master key goes on a card of its own (signature slot, like the CA card of gpg-provision); the subkeys
+  # on another. Each card is reset first, so insert them one at a time.
+  if(args.card_master):
+    GPG_card_write({"sig": master_key}, timestamp, "master key")
   if(card_write):
-    gpg_card_factory_reset()
-    GPG_card_write(masterkeyID)
+    GPG_card_write({"aut": auth_key, "enc": enc_key, "sig": sig_key}, timestamp, "three subkeys")
 
-  os.system("rm -rf temp")
-  
+  remove_work_dir()
+
