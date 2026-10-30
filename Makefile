@@ -10,6 +10,7 @@ install:
 		gpg \
 		python3 \
 		pcscd \
+		tree \
 		python3-ykman \
 		python3-cryptography
 

@@ -43,7 +43,15 @@ If the argument `--card` is supplied then GPG-HD will factory reset the inserted
 By default GPG-HD uses 1970-01-1 (Unix epoch of 1 second) to signal a deterministic keychain.  Optionally one can over-ride this with `--date=unix_time_in_secs`
  while key expirations are defaulted to 2 years.
 
-Private and Public GPG keychain files + SSH public key are written to a `keys` sub-directory of the directory you run `gpg-hd` from (or of your home directory if that one is not writable). If any of these files already exist, `gpg-hd` stops; move them away first.
+The keychain files are written to a `keys` sub-directory of the directory you run `gpg-hd` from (or of your home directory if that one is not writable), named after the master key's fingerprint (`<fingerprint>`) and split into two directories so that each can be copied to a disk/microSD card of its own:
+
+* `keys/private/<fingerprint>.private.keychain.asc`: the whole keychain, to be kept offline
+* `keys/public/<fingerprint>.public.asc`: public key
+* `keys/public/<fingerprint>.public.ssh.key`: public SSH key
+
+Only the files in `keys/public/` should ever touch an internet connected computer.
+
+If any of these files already exist, `gpg-hd` stops; move them away first.
 
 
 Testing

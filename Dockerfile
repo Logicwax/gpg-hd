@@ -6,6 +6,7 @@ RUN apt-get update \
     gpg \
     python3 \
     pcscd \
+    tree \
     python3-ykman \
     python3-cryptography \
     && rm -rf /var/lib/apt/lists/*

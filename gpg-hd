@@ -297,6 +297,17 @@ def GPG_card_write(keys, timestamp, what):
     card_verify(session, slots)
 
 
+def show_keys(keys_path):
+  """List what was written: as a tree if `tree` is installed, otherwise as a plain listing."""
+  try:
+    # -C: tree only colors its output by itself when LS_COLORS is set
+    if subprocess.run(["tree"] + (["-C"] if sys.stdout.isatty() else []) + [keys_path], stderr=subprocess.DEVNULL).returncode == 0:
+      return
+  except FileNotFoundError:
+    pass
+  subprocess.run(["ls", "-alh", os.path.join(keys_path, "private"), os.path.join(keys_path, "public")])
+
+
 def GPG_export_keychain(keyID, timestamp, private_filename, public_filename, ssh_filename):
   # Export full private keychain to file
   gpg_export = subprocess.Popen(gpg_cmdline + "--armor --export-secret-keys " + keyID, \
@@ -327,10 +338,6 @@ if __name__ == '__main__':
   os.system("killall gpg-agent scdaemon ssh-agent > /dev/null 2>&1")
   init_work_dir()
   keys_path = output_dir()
-  outputs = [os.path.join(keys_path, f) for f in ("private_keychain.asc", "public_keychain.asc", "ssh_key.asc")]
-  existing = [f for f in outputs if os.path.exists(f)]
-  if existing:
-    raise SystemExit("These files already exist, move them away first:\n  " + "\n  ".join(existing))
   print("\n")
   parser = argparse.ArgumentParser()
   parser.add_argument("seed_phrase", type=str, help="Seed value or BIP39 phrase")
@@ -381,6 +388,20 @@ if __name__ == '__main__':
   master_key = GPG_create_key(user_id, masterkey_hash, timestamp)
   masterkeyID = GPG_get_masterkey()
 
+  # Files are named after the master key's fingerprint, like the other provisioning scripts
+  # keys/private and keys/public, so each can be copied to its own disk/microSD card
+  private_dir = os.path.join(keys_path, "private")
+  public_dir = os.path.join(keys_path, "public")
+  os.makedirs(private_dir, exist_ok=True)
+  os.makedirs(public_dir, exist_ok=True)
+  private_file = os.path.join(private_dir, masterkeyID + ".private.keychain.asc")
+  public_file = os.path.join(public_dir, masterkeyID + ".public.asc")
+  ssh_file = os.path.join(public_dir, masterkeyID + ".public.ssh.key")
+  existing = [f for f in (private_file, public_file, ssh_file) if os.path.exists(f)]
+  if existing:
+    remove_work_dir()                       # the scratch gpg home already holds the master key
+    raise SystemExit("These files already exist, move them away first:\n  " + "\n  ".join(existing))
+
   # Create 3 subkeys
   auth_key = GPG_create_key(user_id, authkey_hash, timestamp)
   enc_key = GPG_create_key(user_id, enckey_hash, timestamp)
@@ -395,24 +416,22 @@ if __name__ == '__main__':
   GPG_add_enc_subkey(masterkeyID, keygrips.split('\n')[2], timestamp)
   GPG_add_sig_subkey(masterkeyID, keygrips.split('\n')[3], timestamp)
 
-  GPG_export_keychain(masterkeyID, timestamp, \
-    os.path.join(keys_path, "private_keychain.asc"), \
-    os.path.join(keys_path, "public_keychain.asc"), \
-    os.path.join(keys_path, "ssh_key.asc") \
-    )
+  GPG_export_keychain(masterkeyID, timestamp, private_file, public_file, ssh_file)
 
   reset_work_dir()
 
-  GPG_import_keychain(os.path.join(keys_path, "private_keychain.asc"))
+  GPG_import_keychain(private_file)
 
   # just for show...
   print("\n\n\n")
   gpg_list = subprocess.Popen(gpg_cmdline + "--list-keys", shell=True)
   gpg_list.communicate()
   print("\n")
-  print(os.path.join(keys_path, "private_keychain.asc") + " Created\n")
-  print(os.path.join(keys_path, "public_keychain.asc") + " Created\n")
-  print(os.path.join(keys_path, "ssh_key.asc") + " Created\n")
+  show_keys(keys_path)
+  print("\nThe private key is in " + os.path.join(keys_path, "private") + "/ : please back it up onto a disk/microSD card that is kept" \
+    + " in a safe location offline.  This disk should never touch an internet connected machine.\n\nThe public keys are in " \
+    + os.path.join(keys_path, "public") + "/ : these are the only files that should ever touch an internet connected computer" \
+    + " (use a separate microSD card for them).\n")
 
   # The master key goes on a card of its own (signature slot, like the CA card of gpg-provision); the subkeys
   # on another. Each card is reset first, so insert them one at a time.
